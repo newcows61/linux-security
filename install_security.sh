@@ -118,6 +118,23 @@ fi
 
 CREATE_USER_OK=false
 ADMIN=""
+ADMIN_PASS=""
+
+
+# 获取命令参数
+
+if [ ! -z "$1" ]; then
+
+    ADMIN="$1"
+
+fi
+
+
+if [ ! -z "$2" ]; then
+
+    ADMIN_PASS="$2"
+
+fi
 
 
 
