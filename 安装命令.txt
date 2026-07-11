@@ -1,0 +1,1 @@
+bash <(curl -sSL https://raw.githubusercontent.com/newcows61/linux-security/main/install_security.sh)
