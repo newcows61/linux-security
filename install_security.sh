@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Linux Security OneKey V2
+# Linux Security OneKey V3
 # Ubuntu Debian CentOS Rocky Alma Fedora
 
 
@@ -14,8 +14,9 @@ fi
 
 
 echo "================================="
-echo " Linux Security OneKey V2"
+echo " Linux Security OneKey V3"
 echo "================================="
+
 
 
 ############################
@@ -24,18 +25,19 @@ echo "================================="
 
 
 if [ -f /etc/os-release ]; then
-    source /etc/os-release
+
+source /etc/os-release
+
 else
-    echo "无法识别系统"
-    exit 1
+
+echo "无法识别系统"
+exit 1
+
 fi
 
 
 echo "系统:"
 echo "$PRETTY_NAME"
-
-
-OS=$ID
 
 
 
@@ -46,20 +48,20 @@ OS=$ID
 
 if command -v apt >/dev/null 2>&1; then
 
-    PM="apt"
+PM="apt"
 
 elif command -v dnf >/dev/null 2>&1; then
 
-    PM="dnf"
+PM="dnf"
 
 elif command -v yum >/dev/null 2>&1; then
 
-    PM="yum"
+PM="yum"
 
 else
 
-    echo "不支持的软件管理器"
-    exit 1
+echo "不支持的软件管理器"
+exit 1
 
 fi
 
@@ -74,11 +76,15 @@ echo "$PM"
 ############################
 
 
-install_pkg(){
+echo
+echo "[1] 安装安全组件"
+
 
 if [ "$PM" = "apt" ]; then
 
+
 apt update -y
+
 
 apt install -y \
 sudo \
@@ -89,35 +95,19 @@ fail2ban \
 unattended-upgrades
 
 
-elif [ "$PM" = "dnf" ]; then
+
+else
 
 
-dnf install -y \
+$PM install -y \
 sudo \
 curl \
 wget \
 firewalld \
 fail2ban
 
-
-elif [ "$PM" = "yum" ]; then
-
-
-yum install -y \
-sudo \
-curl \
-wget \
-firewalld \
-fail2ban
 
 fi
-
-}
-
-
-echo "[1] 安装安全组件"
-
-install_pkg
 
 
 
@@ -126,69 +116,118 @@ install_pkg
 ############################
 
 
+CREATE_USER_OK=false
+ADMIN=""
+
+
+
 echo
 
-read -p "请输入管理员用户名:" ADMIN
+read -p "请输入管理员用户名(留空跳过): " ADMIN
 
 
-if id "$ADMIN" >/dev/null 2>&1
+if [ -z "$ADMIN" ]; then
 
-then
 
-echo "用户存在"
+echo "未输入用户名"
+echo "跳过创建管理员"
+
+
 
 else
 
-echo "创建用户"
 
-if command -v adduser >/dev/null
-then
+read -s -p "请输入管理员密码(留空跳过): " ADMIN_PASS
 
-adduser "$ADMIN"
+echo
+
+
+
+if [ -z "$ADMIN_PASS" ]; then
+
+
+echo "未输入密码"
+echo "跳过创建管理员"
+
+
 
 else
 
-useradd -m "$ADMIN"
-passwd "$ADMIN"
+
+
+if id "$ADMIN" >/dev/null 2>&1; then
+
+
+echo "用户已经存在"
+
+
+else
+
+
+echo "创建用户 $ADMIN"
+
+
+useradd \
+-m \
+-s /bin/bash \
+"$ADMIN"
+
+
+echo "$ADMIN:$ADMIN_PASS" | chpasswd
+
+
 
 fi
 
-fi
 
 
-
-# sudo权限
+# sudo
 
 if [ "$PM" = "apt" ]; then
 
+
 usermod -aG sudo "$ADMIN"
+
 
 else
 
+
 usermod -aG wheel "$ADMIN"
+
 
 fi
 
 
 
-echo "管理员创建完成"
+CREATE_USER_OK=true
+
+
+echo "管理员创建成功"
+
+
+
+fi
+
+
+fi
 
 
 
 ############################
-# SSH
+# SSH配置
 ############################
 
 
 SSH_CONFIG="/etc/ssh/sshd_config"
 
 
-cp $SSH_CONFIG \
-$SSH_CONFIG.backup.$(date +%F-%H%M)
+cp "$SSH_CONFIG" \
+"$SSH_CONFIG.backup.$(date +%F-%H%M)"
 
 
 
-SSH_PORT=$(grep "^Port " $SSH_CONFIG | awk '{print $2}')
+SSH_PORT=$(grep "^Port " "$SSH_CONFIG" | awk '{print $2}')
+
 
 
 if [ -z "$SSH_PORT" ]; then
@@ -198,24 +237,30 @@ SSH_PORT=22
 fi
 
 
+
 echo
 
 echo "当前SSH端口:$SSH_PORT"
 
 
-read -p "是否修改SSH端口?(y/n):" CHANGE
+
+read -p "是否修改SSH端口?(y/n): " CHANGE
+
 
 
 if [ "$CHANGE" = "y" ]; then
 
 
-read -p "输入新端口:" NEWPORT
+read -p "输入新SSH端口:" NEWPORT
 
 
-sed -i '/^Port /d' $SSH_CONFIG
+if [ ! -z "$NEWPORT" ]; then
 
 
-echo "Port $NEWPORT" >> $SSH_CONFIG
+sed -i '/^Port /d' "$SSH_CONFIG"
+
+
+echo "Port $NEWPORT" >> "$SSH_CONFIG"
 
 
 SSH_PORT=$NEWPORT
@@ -224,24 +269,56 @@ SSH_PORT=$NEWPORT
 fi
 
 
-
-# 禁止root
-
-sed -i '/^PermitRootLogin/d' $SSH_CONFIG
-
-echo "PermitRootLogin no" >> $SSH_CONFIG
+fi
 
 
 
-# 开启key
+# root控制
 
-sed -i '/^PubkeyAuthentication/d' $SSH_CONFIG
-
-echo "PubkeyAuthentication yes" >> $SSH_CONFIG
+if [ "$CREATE_USER_OK" = true ]; then
 
 
 
-echo "SSH加固完成"
+echo "管理员存在"
+
+echo "禁止root SSH"
+
+
+
+sed -i '/^PermitRootLogin/d' "$SSH_CONFIG"
+
+
+echo "PermitRootLogin no" >> "$SSH_CONFIG"
+
+
+ROOT_STATUS="已禁止"
+
+
+
+else
+
+
+
+echo "没有管理员"
+
+echo "保持root SSH"
+
+
+
+ROOT_STATUS="保持开启"
+
+
+
+fi
+
+
+
+
+# SSH Key
+
+sed -i '/^PubkeyAuthentication/d' "$SSH_CONFIG"
+
+echo "PubkeyAuthentication yes" >> "$SSH_CONFIG"
 
 
 
@@ -250,6 +327,8 @@ echo "SSH加固完成"
 ############################
 
 
+echo
+
 echo "[2] 配置防火墙"
 
 
@@ -257,12 +336,16 @@ echo "[2] 配置防火墙"
 if command -v ufw >/dev/null; then
 
 
+
 ufw default deny incoming
+
 ufw default allow outgoing
 
 
-ufw allow $SSH_PORT/tcp
+ufw allow "$SSH_PORT"/tcp
+
 ufw allow 80/tcp
+
 ufw allow 443/tcp
 
 
@@ -273,27 +356,37 @@ ufw --force enable
 elif command -v firewall-cmd >/dev/null; then
 
 
+
 systemctl enable firewalld
 
 systemctl start firewalld
 
 
-firewall-cmd --permanent \
---add-port=$SSH_PORT/tcp
+
+firewall-cmd \
+--permanent \
+--add-port="$SSH_PORT/tcp"
 
 
-firewall-cmd --permanent \
+
+firewall-cmd \
+--permanent \
 --add-port=80/tcp
 
 
-firewall-cmd --permanent \
+
+firewall-cmd \
+--permanent \
 --add-port=443/tcp
+
 
 
 firewall-cmd --reload
 
 
+
 fi
+
 
 
 
@@ -302,14 +395,18 @@ fi
 ############################
 
 
+echo
+
 echo "[3] 配置Fail2ban"
+
 
 
 mkdir -p /etc/fail2ban
 
 
 
-cat >/etc/fail2ban/jail.local <<EOF
+cat > /etc/fail2ban/jail.local <<EOF
+
 
 [DEFAULT]
 
@@ -318,10 +415,12 @@ findtime = 10m
 maxretry = 5
 
 
+
 [sshd]
 
-enabled=true
-port=$SSH_PORT
+enabled = true
+port = $SSH_PORT
+
 
 EOF
 
@@ -333,12 +432,14 @@ systemctl restart fail2ban
 
 
 
+
 ############################
 # 自动更新
 ############################
 
 
 if [ "$PM" = "apt" ]; then
+
 
 dpkg-reconfigure \
 -f noninteractive \
@@ -349,9 +450,14 @@ fi
 
 
 
+
 ############################
 # SSH目录
 ############################
+
+
+if [ "$CREATE_USER_OK" = true ]; then
+
 
 
 mkdir -p /home/$ADMIN/.ssh
@@ -366,6 +472,12 @@ chmod 700 \
 
 
 
+fi
+
+
+
+
+
 ############################
 # 重启SSH
 ############################
@@ -376,6 +488,8 @@ systemctl restart ssh
 
 
 
+
+
 ############################
 # 输出报告
 ############################
@@ -383,9 +497,10 @@ systemctl restart ssh
 
 echo
 
-echo "=============================="
+echo "================================"
 echo " 安装完成"
-echo "=============================="
+echo "================================"
+
 
 
 echo
@@ -397,7 +512,16 @@ echo "$PRETTY_NAME"
 echo
 
 echo "管理员:"
+if [ "$CREATE_USER_OK" = true ]; then
+
 echo "$ADMIN"
+
+else
+
+echo "未创建"
+
+fi
+
 
 
 echo
@@ -406,28 +530,33 @@ echo "SSH端口:"
 echo "$SSH_PORT"
 
 
+
 echo
 
 echo "root SSH:"
-echo "已禁止"
+echo "$ROOT_STATUS"
+
 
 
 echo
 
-echo "请测试新账号登录:"
+echo "防爆破:"
+fail2ban-client status sshd || true
+
+
+
 echo
 
-echo "ssh $ADMIN@服务器IP -p $SSH_PORT"
-
+echo "完成"
 
 echo
 
 echo "注意:"
-echo "确认新账号可以登录后"
-echo "再关闭 PasswordAuthentication"
-
-
+echo "如果创建了管理员，请测试:"
 echo
 
-fail2ban-client status sshd || true
+if [ "$CREATE_USER_OK" = true ]; then
 
+echo "ssh $ADMIN@服务器IP -p $SSH_PORT"
+
+fi
